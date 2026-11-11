@@ -314,6 +314,7 @@ final class AppModel {
         syncEngine()
         shares.start()
         analysis.start()
+        RemoteController.shared.attach(self) // Vespertine Remote: starts the phone remote if it was left on
         // Hand the DAC back when Vespertine quits: stop, release exclusive access, then restore or
         // standardize its format as chosen in Settings. Core Audio decides how long that takes (a device that won't
         // switch rate can hold it for many seconds), so it runs off the main thread and quitting waits for it only
