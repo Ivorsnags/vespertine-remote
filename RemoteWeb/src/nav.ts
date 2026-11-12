@@ -1,20 +1,24 @@
 import { create } from 'zustand'
 
-export type Tab = 'now' | 'library' | 'search'
+export type Tab = 'now' | 'library' | 'search' | 'podcasts'
+export type PodcastSection = 'listen' | 'shows' | 'browse' | 'downloads'
 export type LibrarySection = 'albums' | 'artists'
 
 export type Route =
   | { kind: 'root' }
   | { kind: 'album'; id: string }
   | { kind: 'artist'; id: string }
+  | { kind: 'podcast-show'; id: string }
 
 interface NavStore {
   tab: Tab
   stacks: Record<Exclude<Tab, 'now'>, Route[]>
   librarySection: LibrarySection
+  podcastSection: PodcastSection
   /** The queue opens over everything from a button on Now Playing. */
   queueOpen: boolean
   setQueueOpen: (open: boolean) => void
+  setPodcastSection: (section: PodcastSection) => void
   setTab: (tab: Tab) => void
   push: (route: Route) => void
   pop: () => void
@@ -33,12 +37,27 @@ function rememberedSection(): LibrarySection {
   return 'albums'
 }
 
+function rememberedPodcastSection(): PodcastSection {
+  try {
+    const value = localStorage.getItem('remote:podcast-section')
+    if (value === 'listen' || value === 'shows' || value === 'browse' || value === 'downloads') return value
+  } catch {
+    // Private mode: use the default.
+  }
+  return 'listen'
+}
+
 export const useNav = create<NavStore>((set, get) => ({
   tab: 'now',
-  stacks: { library: root(), search: root() },
+  stacks: { library: root(), search: root(), podcasts: root() },
   librarySection: rememberedSection(),
+  podcastSection: rememberedPodcastSection(),
   queueOpen: false,
   setQueueOpen: (queueOpen) => set({ queueOpen }),
+  setPodcastSection: (section) => {
+    try { localStorage.setItem('remote:podcast-section', section) } catch { /* private mode */ }
+    set({ podcastSection: section })
+  },
   setTab: (tab) => {
     const current = get().tab
     // Tapping the current tab again returns to its first page, as on iOS.
@@ -76,5 +95,15 @@ export function openInLibrary(route: Route) {
     tab: 'library',
     queueOpen: false,
     stacks: { ...nav.stacks, library: [{ kind: 'root' }, route] },
+  })
+}
+
+/** Opens a podcast show from anywhere (e.g. tapping the show on Now Playing). */
+export function openPodcastShow(showId: string) {
+  const nav = useNav.getState()
+  useNav.setState({
+    tab: 'podcasts',
+    queueOpen: false,
+    stacks: { ...nav.stacks, podcasts: [{ kind: 'root' }, { kind: 'podcast-show', id: showId }] },
   })
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AudioLines, ChevronDown, Library, Loader2, Search, WifiOff } from 'lucide-react'
+import { AudioLines, ChevronDown, Library, Loader2, Podcast, Search, WifiOff } from 'lucide-react'
 import { useRemote } from './api'
 import { useNav, type Tab } from './nav'
 import { SheetHost, useSheet } from './ui'
@@ -7,16 +7,19 @@ import NowPlaying, { MiniPlayer } from './components/NowPlaying'
 import Queue from './components/Queue'
 import { LibraryRoot, RoutePage } from './components/Library'
 import { SearchRoot } from './components/Search'
+import { PodcastsRoot } from './components/Podcasts'
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Library; className?: string }> = [
   { id: 'now', label: 'Playing', icon: AudioLines, className: 'tab-now' },
   { id: 'library', label: 'Library', icon: Library },
   { id: 'search', label: 'Search', icon: Search },
+  { id: 'podcasts', label: 'Podcasts', icon: Podcast },
 ]
 
 const ROOTS: Record<Exclude<Tab, 'now'>, () => JSX.Element> = {
   library: () => <LibraryRoot />,
   search: () => <SearchRoot />,
+  podcasts: () => <PodcastsRoot />,
 }
 
 /** The queue, opened from Now Playing, over everything (like Apple Music). */

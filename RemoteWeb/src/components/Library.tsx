@@ -4,6 +4,7 @@ import type { RemoteArtist } from '../protocol'
 import { formatTotal, query, send } from '../api'
 import { useNav, type LibrarySection, type Route } from '../nav'
 import { Artwork, Status, useLoad } from '../ui'
+import { PodcastShowPage } from './Podcasts'
 import {
   AlbumTile,
   ArtistRow,
@@ -267,6 +268,7 @@ export function RoutePage({ route, root }: { route: Route; root: () => JSX.Eleme
   switch (route.kind) {
     case 'album': return <AlbumPage key={route.id} id={route.id} />
     case 'artist': return <ArtistPage key={route.id} id={route.id} />
+    case 'podcast-show': return <PodcastShowPage key={route.id} id={route.id} />
     default: return root()
   }
 }

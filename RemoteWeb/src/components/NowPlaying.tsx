@@ -5,6 +5,8 @@ import {
   Play,
   Repeat,
   Repeat1,
+  RotateCcw,
+  RotateCw,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -13,7 +15,7 @@ import {
 } from 'lucide-react'
 import type { RemoteFormat, RemoteState } from '../protocol'
 import { currentPosition, formatTime, query, send, useRemote } from '../api'
-import { openInLibrary, useNav } from '../nav'
+import { openInLibrary, openPodcastShow, useNav } from '../nav'
 import { Artwork, Slider, Status, useLoad } from '../ui'
 import { TrackRow } from './common'
 
@@ -91,7 +93,7 @@ export default function NowPlaying() {
 
   const track = state.track
   // Tapping the cover lists the album's tracks.
-  const albumId = track.catalogAlbumId
+  const albumId = !track.isPodcast ? track.catalogAlbumId : null
   const albumTracksOpen = tracksOpen && !!albumId
   const duration = state.durationSec || track.durationSec
   const position = currentPosition({ state, receivedAt, optimistic })
@@ -129,10 +131,13 @@ export default function NowPlaying() {
         <div className="row-text">
           <div className="now-title">{track.title}</div>
           <div className="now-artist">
-            {track.catalogArtistId
+            {track.isPodcast && track.podcastShowId
+              ? <button type="button" onClick={() => openPodcastShow(track.podcastShowId!)}>{track.artist}</button>
+              : track.isPodcast ? track.artist
+              : track.catalogArtistId
               ? <button type="button" onClick={() => openInLibrary({ kind: 'artist', id: track.catalogArtistId! })}>{track.artist}</button>
               : track.artist}
-            {track.album && (
+            {track.album && !track.isPodcast && (
               <>
                 {' – '}
                 {track.catalogAlbumId
@@ -171,6 +176,9 @@ export default function NowPlaying() {
       )}
 
       <div className="transport">
+        {track.isPodcast ? (
+          <SkipSeconds seconds={-15} />
+        ) : (
         <button
           type="button"
           className={`icon-button mode ${shuffle ? 'on' : ''}`}
@@ -183,6 +191,7 @@ export default function NowPlaying() {
         >
           <Shuffle size={22} />
         </button>
+        )}
         <button type="button" className="icon-button" aria-label="Previous" onClick={() => send({ type: 'previous' })}>
           <SkipBack size={30} fill="currentColor" />
         </button>
@@ -192,6 +201,9 @@ export default function NowPlaying() {
         <button type="button" className="icon-button" aria-label="Next" onClick={() => send({ type: 'next' })}>
           <SkipForward size={30} fill="currentColor" />
         </button>
+        {track.isPodcast ? (
+          <SkipSeconds seconds={30} />
+        ) : (
         <button
           type="button"
           className={`icon-button mode ${repeat !== 'off' ? 'on' : ''}`}
@@ -204,6 +216,7 @@ export default function NowPlaying() {
         >
           {repeat === 'one' ? <Repeat1 size={22} /> : <Repeat size={22} />}
         </button>
+        )}
       </div>
 
       <div className="volume">
@@ -269,6 +282,23 @@ function QueueButton() {
       <ListMusic size={20} aria-hidden />
       <span>Queue</span>
       {upNext > 0 && <span className="queue-button-count">{upNext} up next</span>}
+    </button>
+  )
+}
+
+/** Podcast back 15 / forward 30, as in Apple Podcasts. */
+function SkipSeconds({ seconds }: { seconds: number }) {
+  const amount = Math.abs(seconds)
+  const Icon = seconds < 0 ? RotateCcw : RotateCw
+  return (
+    <button
+      type="button"
+      className="icon-button mode skip-seconds"
+      aria-label={seconds < 0 ? `Back ${amount} seconds` : `Forward ${amount} seconds`}
+      onClick={() => send({ type: 'skip', seconds })}
+    >
+      <Icon size={30} strokeWidth={1.6} />
+      <span className="skip-seconds-label tabular" aria-hidden>{amount}</span>
     </button>
   )
 }

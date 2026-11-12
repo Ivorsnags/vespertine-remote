@@ -224,6 +224,7 @@ export function routeKey(route: Route): string {
   switch (route.kind) {
     case 'album': return `album:${route.id}`
     case 'artist': return `artist:${route.id}`
+    case 'podcast-show': return `podcast-show:${route.id}`
     default: return 'root'
   }
 }

@@ -26,6 +26,8 @@ final class RemoteBridge {
     private var lastLibraryRevision = -1
     private var publishScheduled = false
     private var notification: String?
+    private var podcasts: RemotePodcasts!
+    private var ticker: Task<Void, Never>?
 
     /// Songs sent in the queue list (a window around the current song).
     static let queueWindow = 400
@@ -37,7 +39,16 @@ final class RemoteBridge {
         self.model = model
         self.broadcast = broadcast
         self.clientCount = clientCount
+        podcasts = RemotePodcasts(model: model, notify: { [weak self] text in self?.notify(text) })
         watch()
+        // Remembers the place in a podcast episode while it plays.
+        ticker = Task { @MainActor [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self else { return }
+                self.podcasts.tick()
+            }
+        }
     }
 
     // MARK: Watching the player
@@ -81,6 +92,7 @@ final class RemoteBridge {
     /// Sends what changed to every phone with a live stream.
     func publish() {
         guard let model else { return }
+        podcasts.tick()
         let ids = model.player.queue.map(\.id)
         if ids != lastQueueIDs {
             lastQueueIDs = ids
@@ -150,7 +162,7 @@ final class RemoteBridge {
                   let type = body["type"] as? String else {
                 return .json(["error": "Bad request"], status: 400)
             }
-            return request.path == "/api/query" ? query(type, body, model) : await command(type, body, model)
+            return request.path == "/api/query" ? await query(type, body, model) : await command(type, body, model)
         case "/art":
             guard request.method == "GET" else { return .text("Method not allowed", status: 405) }
             return await art(request.query["k"], size: request.query["s"].flatMap(Int.init) ?? 600)
@@ -232,6 +244,22 @@ final class RemoteBridge {
 
     private func trackObject(_ entry: QueueEntry, _ model: AppModel) -> [String: Any] {
         let t = entry.track
+        if let episode = podcasts.info(forPath: t.filePath) {
+            return [
+                "key": entry.id.uuidString,
+                "title": t.title,
+                "artist": episode.showTitle,
+                "album": episode.showTitle,
+                "durationSec": Self.finite(t.duration),
+                "artwork": episode.artwork as Any? ?? NSNull(),
+                "catalogAlbumId": NSNull(),
+                "catalogArtistId": NSNull(),
+                "isRadio": false,
+                "isPodcast": true,
+                "podcastShowId": episode.showID,
+                "podcastEpisodeId": episode.episodeID,
+            ]
+        }
         return [
             "key": entry.id.uuidString,
             "title": t.title,
@@ -265,7 +293,10 @@ final class RemoteBridge {
 
     // MARK: Library queries
 
-    private func query(_ type: String, _ body: [String: Any], _ model: AppModel) -> RemoteResponse {
+    private func query(_ type: String, _ body: [String: Any], _ model: AppModel) async -> RemoteResponse {
+        if type.hasPrefix("podcast-") {
+            return await podcasts.query(type, body) ?? .json(["error": "Not available in GR Player"], status: 400)
+        }
         let library = model.library
         switch type {
         case "queue":
@@ -358,6 +389,9 @@ final class RemoteBridge {
     // MARK: Commands
 
     private func command(_ type: String, _ body: [String: Any], _ model: AppModel) async -> RemoteResponse {
+        if type.hasPrefix("podcast-") {
+            return podcasts.command(type, body) ?? .json(["error": "Not available in GR Player"], status: 400)
+        }
         let player = model.player
         let library = model.library
         switch type {
