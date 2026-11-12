@@ -1,7 +1,7 @@
 {
-  "name": "Vespertine Remote",
-  "short_name": "Vespertine",
-  "description": "Remote control for Vespertine on the Mac.",
+  "name": "GR Player",
+  "short_name": "GR Player",
+  "description": "Remote control for GR Player on the Mac.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

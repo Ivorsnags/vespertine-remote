@@ -14,10 +14,10 @@ struct RemoteSettings: View {
         @Bindable var controller = remote
         Form {
             Section {
-                Toggle("Control Vespertine from a phone on this network", isOn: $controller.enabled)
+                Toggle("Control GR Player from a phone on this network", isOn: $controller.enabled)
                 Text(statusLine).font(.caption).foregroundStyle(.secondary)
             } footer: {
-                Text("Vespertine answers only devices on your own network. There is no PIN, so turn this off if you share your network with people you don’t trust. Nothing goes through the internet.")
+                Text("GR Player answers only devices on your own network. There is no PIN, so turn this off if you share your network with people you don’t trust. Nothing goes through the internet.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if controller.enabled {
@@ -39,7 +39,7 @@ struct RemoteSettings: View {
                         TextField("Port", value: $controller.port, format: .number.grouping(.never))
                             .multilineTextAlignment(.trailing).frame(width: 80)
                     }
-                    Text("The first time, macOS may ask to let Vespertine find devices on your local network. Choose Allow. On the phone, Share → Add to Home Screen makes it open like an app.")
+                    Text("The first time, macOS may ask to let GR Player find devices on your local network. Choose Allow. On the phone, Share → Add to Home Screen makes it open like an app.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

@@ -310,7 +310,7 @@ final class RemoteBridge {
             return value(["artists": artists.map(artistObject), "albums": albums.map(albumObject),
                           "tracks": tracks.map { libraryTrackObject($0, model) }])
         default:
-            return .json(["error": "Not available in Vespertine Remote"], status: 400)
+            return .json(["error": "Not available in GR Player"], status: 400)
         }
     }
 
@@ -428,7 +428,7 @@ final class RemoteBridge {
             guard !tracks.isEmpty else { return .json(["error": "Song not found"], status: 404) }
             if body["next"] as? Bool == true { player.playNext(tracks) } else { player.addToQueue(tracks) }
         default:
-            return .json(["error": "Not available in Vespertine Remote"], status: 400)
+            return .json(["error": "Not available in GR Player"], status: 400)
         }
         publish()
         return .json(["value": NSNull()])

@@ -85,7 +85,7 @@ function ConnectionNotice() {
     <div className="offline" role="alert">
       <WifiOff size={40} strokeWidth={1.5} aria-hidden />
       <strong>Can’t reach the Mac</strong>
-      <span>Make sure the Mac is awake, Vespertine Remote is switched on, and this device is on the same Wi-Fi.</span>
+      <span>Make sure the Mac is awake, GR Player is switched on in the Mac app, and this device is on the same Wi-Fi.</span>
       <span className="offline-hint">It will reconnect by itself.</span>
       <ConnectionDetails />
     </div>
