@@ -183,6 +183,7 @@ struct ContentRouter: View {
         case .genres: GenresView()
         case .recentlyAdded: AlbumsGridView(scope: .sidebar(.recentlyAdded), title: String(localized: "Recently Added"))
         case .favorites: FavoritesView()
+        case .podcasts: PodcastsView() // Vespertine Remote
         case .playlist(let id): PlaylistView(playlistID: id)
         case .source(let id): SourceView(sourceID: id)
         }

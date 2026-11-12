@@ -37,6 +37,11 @@ struct SidebarView: View {
                     }
             }
 
+            // Vespertine Remote: podcasts (see App/Sources/Remote/PodcastsView.swift).
+            Section("Listen") {
+                Label("Podcasts", systemImage: "mic").tag(SidebarItem.podcasts)
+            }
+
             Section {
                 ForEach(model.library.playlists) { playlist in
                     if let id = playlist.id {

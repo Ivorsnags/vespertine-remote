@@ -26,8 +26,7 @@ final class RemoteBridge {
     private var lastLibraryRevision = -1
     private var publishScheduled = false
     private var notification: String?
-    private var podcasts: RemotePodcasts!
-    private var ticker: Task<Void, Never>?
+    private let podcasts: RemotePodcasts
 
     /// Songs sent in the queue list (a window around the current song).
     static let queueWindow = 400
@@ -35,20 +34,13 @@ final class RemoteBridge {
     /// Not orange: a calm blue the page uses until the Mac app tells it otherwise.
     static let accent = "#6c8cff"
 
-    init(model: AppModel, broadcast: @escaping (String, Data) -> Void, clientCount: @escaping () -> Int) {
+    init(model: AppModel, podcasts: RemotePodcasts, broadcast: @escaping (String, Data) -> Void, clientCount: @escaping () -> Int) {
         self.model = model
+        self.podcasts = podcasts
         self.broadcast = broadcast
         self.clientCount = clientCount
-        podcasts = RemotePodcasts(model: model, notify: { [weak self] text in self?.notify(text) })
+        podcasts.notify = { [weak self] text in self?.notify(text) }
         watch()
-        // Remembers the place in a podcast episode while it plays.
-        ticker = Task { @MainActor [weak self] in
-            while true {
-                try? await Task.sleep(for: .seconds(10))
-                guard let self else { return }
-                self.podcasts.tick()
-            }
-        }
     }
 
     // MARK: Watching the player

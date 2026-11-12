@@ -47,6 +47,7 @@ extension FilterScope {
         case .genres: "genres"
         case .recentlyAdded: "recentlyAdded"
         case .favorites: "favorites"
+        case .podcasts: "podcasts" // Vespertine Remote
         case .playlist(let id): "playlist:\(id)"
         case .source(let id): "source:\(id)"
         }

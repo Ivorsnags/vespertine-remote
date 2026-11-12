@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Observation
 import VespertineAudio
 import VespertineLibrary
 
@@ -114,31 +115,35 @@ nonisolated final class PodcastDownloader: NSObject, URLSessionDownloadDelegate,
 }
 
 @MainActor
+@Observable
 final class RemotePodcasts {
     static let audioExtensions: Set<String> = ["mp3", "m4a", "aac", "mp4", "ogg", "opus", "wav", "flac"]
     static let staleShowMinutes = 10.0
     static let staleListMinutes = 30.0
     static let keptUnsubscribedShows = 40
 
-    private weak var model: AppModel?
-    private let notify: (String) -> Void
-    private let root: URL
-    private var shows: [String: PodcastShowRecord] = [:]
-    private var progress: [String: PodcastProgress] = [:]
-    private var showOfEpisode: [String: String] = [:]
-    private var downloading: [String: Double] = [:]
-    private var failed: Set<String> = []
-    private var otherAddresses: [String: [URL]] = [:]
-    private var playWhenReady: String?
-    private var playing: [String: String] = [:]
-    private var refreshing: Set<String> = []
-    private let downloader = PodcastDownloader()
-    private var progressDirty = false
-    private var lastProgressSave = Date.distantPast
+    @ObservationIgnored private weak var model: AppModel?
+    /// Told about things the phone should show as a toast ("Downloaded: …"); set by the remote when it is running.
+    @ObservationIgnored var notify: (String) -> Void = { _ in }
+    /// The latest short message, for the Mac screen; clears itself.
+    private(set) var message: String?
+    @ObservationIgnored private let root: URL
+    private(set) var shows: [String: PodcastShowRecord] = [:]
+    private(set) var progress: [String: PodcastProgress] = [:]
+    @ObservationIgnored private var showOfEpisode: [String: String] = [:]
+    private(set) var downloading: [String: Double] = [:]
+    private(set) var failed: Set<String> = []
+    @ObservationIgnored private var otherAddresses: [String: [URL]] = [:]
+    @ObservationIgnored private var playWhenReady: String?
+    @ObservationIgnored private var playing: [String: String] = [:]
+    @ObservationIgnored private var refreshing: Set<String> = []
+    @ObservationIgnored private let downloader = PodcastDownloader()
+    @ObservationIgnored private var progressDirty = false
+    @ObservationIgnored private var lastProgressSave = Date.distantPast
+    @ObservationIgnored private var ticker: Task<Void, Never>?
 
-    init(model: AppModel, notify: @escaping (String) -> Void) {
+    init(model: AppModel) {
         self.model = model
-        self.notify = notify
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         root = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "GRPlayer", isDirectory: true)
@@ -159,6 +164,24 @@ final class RemotePodcasts {
         }
         downloader.onDone = { [weak self] id, result in
             Task { @MainActor in self?.downloadFinished(id, result) }
+        }
+        // Remembers the place in an episode while it plays.
+        ticker = Task { @MainActor [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self else { return }
+                self.tick()
+            }
+        }
+    }
+
+    /// Shows a short message on the Mac screen and on the phone.
+    private func say(_ text: String) {
+        message = text
+        notify(text)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            if self?.message == text { self?.message = nil }
         }
     }
 
@@ -393,29 +416,17 @@ final class RemotePodcasts {
         switch type {
         case "podcast-subscribe", "podcast-unsubscribe":
             guard let id = body["showId"] as? String, shows[id] != nil else { return failure("Show not found", 404) }
-            shows[id]?.subscribed = type == "podcast-subscribe"
-            saveShows()
+            setSubscribed(id, type == "podcast-subscribe")
         case "podcast-download", "podcast-play", "podcast-cancel-download", "podcast-delete-download", "podcast-played":
-            guard let id = body["episodeId"] as? String, let (show, ep) = find(id) else { return failure("Episode not found", 404) }
+            guard let id = body["episodeId"] as? String, find(id) != nil else { return failure("Episode not found", 404) }
             switch type {
-            case "podcast-download": startDownload(show, ep)
+            case "podcast-download": download(id)
             case "podcast-play": return play(id)
-            case "podcast-cancel-download":
-                downloading[id] = nil
-                otherAddresses[id] = nil
-                if playWhenReady == id { playWhenReady = nil }
-                downloader.cancel(id: id)
-            case "podcast-delete-download":
-                if let path = filePath(id) { try? FileManager.default.removeItem(atPath: path) }
-                progress[id]?.file = nil
-                failed.remove(id)
-                saveProgress()
+            case "podcast-cancel-download": stopDownload(id)
+            case "podcast-delete-download": removeDownload(id)
             default:
                 guard let played = body["played"] as? Bool else { return failure("Bad request", 400) }
-                progress[id, default: PodcastProgress()].played = played
-                progress[id]?.isNew = false
-                if played { progress[id]?.positionSec = 0 }
-                saveProgress()
+                setPlayed(id, played)
             }
         default:
             return failure("Not available in GR Player", 400)
@@ -423,12 +434,84 @@ final class RemotePodcasts {
         return ok
     }
 
+    // MARK: Actions (the phone and the Mac screen both use these)
+
+    func setSubscribed(_ showID: String, _ on: Bool) {
+        guard shows[showID] != nil else { return }
+        shows[showID]?.subscribed = on
+        saveShows()
+    }
+
+    func download(_ episodeID: String) {
+        guard let (show, ep) = find(episodeID) else { return }
+        startDownload(show, ep)
+    }
+
+    func stopDownload(_ episodeID: String) {
+        downloading[episodeID] = nil
+        otherAddresses[episodeID] = nil
+        if playWhenReady == episodeID { playWhenReady = nil }
+        downloader.cancel(id: episodeID)
+    }
+
+    func removeDownload(_ episodeID: String) {
+        if let path = filePath(episodeID) { try? FileManager.default.removeItem(atPath: path) }
+        progress[episodeID]?.file = nil
+        failed.remove(episodeID)
+        saveProgress()
+    }
+
+    func setPlayed(_ episodeID: String, _ played: Bool) {
+        progress[episodeID, default: PodcastProgress()].played = played
+        progress[episodeID]?.isNew = false
+        if played { progress[episodeID]?.positionSec = 0 }
+        saveProgress()
+    }
+
+    func playEpisode(_ episodeID: String) { _ = play(episodeID) }
+
+    // MARK: For the Mac screen
+
+    var subscribedShows: [PodcastShowRecord] {
+        shows.values.filter(\.subscribed).sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    func show(_ id: String) -> PodcastShowRecord? { shows[id] }
+    func episodeProgress(_ id: String) -> PodcastProgress { progress[id] ?? PodcastProgress() }
+    func isDownloaded(_ id: String) -> Bool { filePath(id) != nil }
+    func downloadFraction(_ id: String) -> Double? { downloading[id] }
+    func hasFailed(_ id: String) -> Bool { failed.contains(id) }
+    func newCount(_ show: PodcastShowRecord) -> Int {
+        show.episodes.filter { (progress[$0.id]?.isNew ?? false) && !(progress[$0.id]?.played ?? false) }.count
+    }
+
+    /// Episodes with a place saved, then the new ones from subscribed shows.
+    func listenNow() -> (inProgress: [(PodcastShowRecord, PodcastEpisodeRecord)], fresh: [(PodcastShowRecord, PodcastEpisodeRecord)]) {
+        let all = shows.values.flatMap { show in show.episodes.map { (show, $0) } }
+        let inProgress = all.filter { (progress[$0.1.id]?.positionSec ?? 0) > 5 && !(progress[$0.1.id]?.played ?? false) }
+            .sorted { (progress[$0.1.id]?.touchedAt ?? 0) > (progress[$1.1.id]?.touchedAt ?? 0) }
+        let fresh = all.filter { $0.0.subscribed && (progress[$0.1.id]?.isNew ?? false) && !(progress[$0.1.id]?.played ?? false) }
+            .sorted { ($0.1.publishedAt ?? 0) > ($1.1.publishedAt ?? 0) }
+        return (Array(inProgress.prefix(20)), Array(fresh.prefix(30)))
+    }
+
+    func downloadedEpisodes() -> [(PodcastShowRecord, PodcastEpisodeRecord)] {
+        shows.values.flatMap { show in show.episodes.map { (show, $0) } }
+            .filter { filePath($0.1.id) != nil || downloading[$0.1.id] != nil }
+            .sorted { ($0.1.publishedAt ?? 0) > ($1.1.publishedAt ?? 0) }
+    }
+
+    func refreshShow(_ id: String) async { await refreshIfStale(id, minutes: Self.staleShowMinutes) }
+    func refreshAll() { refreshSubscribedInBackground() }
+    func openDirectoryShow(_ entry: DirectoryEntry) async -> String? { await open(entry) }
+    func knownShow(for entry: DirectoryEntry) -> PodcastShowRecord? { entry.feedURL.flatMap { shows[showID(forFeed: $0)] } }
+
     // MARK: Downloads
 
     private func startDownload(_ show: PodcastShowRecord, _ ep: PodcastEpisodeRecord) {
         guard downloading[ep.id] == nil, filePath(ep.id) == nil else { return }
         let urls = PodcastNet.candidates(ep.audioURL)
-        guard let first = urls.first else { failed.insert(ep.id); notify("That episode has no usable address."); return }
+        guard let first = urls.first else { failed.insert(ep.id); say("That episode has no usable address."); return }
         failed.remove(ep.id)
         downloading[ep.id] = 0
         otherAddresses[ep.id] = Array(urls.dropFirst())
@@ -455,7 +538,7 @@ final class RemotePodcasts {
                 playWhenReady = nil
                 _ = play(id)
             } else if let (_, ep) = find(id) {
-                notify("Downloaded: \(ep.title)")
+                say("Downloaded: \(ep.title)")
             }
         case .failure(let error):
             if var rest = otherAddresses[id], !rest.isEmpty, let showID = showOfEpisode[id] {
@@ -469,7 +552,7 @@ final class RemotePodcasts {
             otherAddresses[id] = nil
             failed.insert(id)
             if playWhenReady == id { playWhenReady = nil }
-            notify("Couldn’t download the episode: \(error.localizedDescription)")
+            say("Couldn’t download the episode: \(error.localizedDescription)")
         }
     }
 
@@ -480,7 +563,7 @@ final class RemotePodcasts {
         guard let path = filePath(id) else {
             playWhenReady = id
             if downloading[id] == nil { startDownload(show, ep) }
-            notify("Downloading the episode first…")
+            say("Downloading the episode first…")
             return .json(["value": NSNull()])
         }
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)

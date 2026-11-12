@@ -12,6 +12,7 @@ import SwiftUI
 
 enum SidebarItem: Hashable {
     case albums, artists, songs, genres, recentlyAdded, favorites
+    case podcasts // Vespertine Remote: the Podcasts page (RemoteController / PodcastsView)
     case playlist(Int64)
     case source(Int64)
 }

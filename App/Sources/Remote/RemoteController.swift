@@ -55,6 +55,8 @@ final class RemoteController {
     @ObservationIgnored private weak var model: AppModel?
     @ObservationIgnored private var server: RemoteServer?
     @ObservationIgnored private var bridge: RemoteBridge?
+    /// Podcasts work on the Mac whether or not the phone remote is switched on.
+    private(set) var podcasts: RemotePodcasts?
 
     private init() {
         let defaults = UserDefaults.standard
@@ -66,6 +68,7 @@ final class RemoteController {
     /// Called once the app's model exists. Starts the server if the remote was left on.
     func attach(_ model: AppModel) {
         self.model = model
+        podcasts = RemotePodcasts(model: model)
         if enabled { start() }
     }
 
@@ -75,8 +78,10 @@ final class RemoteController {
         status = .starting
         // The server is made first so the bridge can send through it; the bridge is attached right after.
         let holder = ServerHolder()
+        guard let podcasts else { return }
         let bridge = RemoteBridge(
             model: model,
+            podcasts: podcasts,
             broadcast: { event, data in holder.server?.broadcast(event: event, json: data) },
             clientCount: { holder.server?.streamCount ?? 0 })
         self.bridge = bridge
@@ -100,6 +105,7 @@ final class RemoteController {
         server?.stop()
         server = nil
         bridge = nil
+        podcasts?.notify = { _ in }
         phones = 0
         if !keepEnabled { status = .off }
     }
