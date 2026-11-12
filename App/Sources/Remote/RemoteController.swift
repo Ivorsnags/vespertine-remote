@@ -1,5 +1,5 @@
 //
-// Vespertine Remote: the on/off switch, the PIN and the server's state.
+// Vespertine Remote: the on/off switch, the port and the server's state.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 
@@ -7,10 +7,13 @@ import Foundation
 import Observation
 import Darwin
 
-/// Owns the phone remote: starts and stops the server, keeps the PIN and the port. Off until the user turns it on.
+/// Owns the phone remote: starts and stops the server, keeps the port. Off until the user turns it on.
 @Observable
 @MainActor
 final class RemoteController {
+    /// Lets the bridge reach the server that is created after it.
+    private nonisolated final class ServerHolder: @unchecked Sendable { var server: RemoteServer? }
+
     static let shared = RemoteController()
 
     enum Status: Equatable {
@@ -24,11 +27,11 @@ final class RemoteController {
     private enum Key {
         static let enabled = "remoteEnabled"
         static let port = "remotePort"
-        static let pin = "remotePIN"
     }
 
     private(set) var status: Status = .off
-    private(set) var pin: String
+    /// Phones with a live stream open right now.
+    private(set) var phones = 0
 
     var enabled: Bool {
         didSet {
@@ -51,20 +54,13 @@ final class RemoteController {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private weak var model: AppModel?
     @ObservationIgnored private var server: RemoteServer?
-    @ObservationIgnored private var api: RemoteAPI?
+    @ObservationIgnored private var bridge: RemoteBridge?
 
     private init() {
         let defaults = UserDefaults.standard
         enabled = defaults.bool(forKey: Key.enabled)
         let saved = defaults.integer(forKey: Key.port)
         port = saved == 0 ? Self.defaultPort : min(max(saved, 1024), 65535)
-        if let stored = defaults.string(forKey: Key.pin), stored.count == 6, stored.allSatisfy(\.isNumber) {
-            pin = stored
-        } else {
-            let fresh = Self.newPIN()
-            defaults.set(fresh, forKey: Key.pin)
-            pin = fresh
-        }
     }
 
     /// Called once the app's model exists. Starts the server if the remote was left on.
@@ -73,30 +69,29 @@ final class RemoteController {
         if enabled { start() }
     }
 
-    func regeneratePIN() {
-        let fresh = Self.newPIN()
-        defaults.set(fresh, forKey: Key.pin)
-        pin = fresh
-    }
-
-    nonisolated static func newPIN() -> String {
-        String(format: "%06d", Int.random(in: 0...999_999))
-    }
-
     private func start() {
         stop(keepEnabled: true)
         guard let model else { return }
         status = .starting
-        let api = RemoteAPI(model: model, pin: { [weak self] in self?.pin ?? "" })
-        self.api = api
+        // The server is made first so the bridge can send through it; the bridge is attached right after.
+        let holder = ServerHolder()
+        let bridge = RemoteBridge(
+            model: model,
+            broadcast: { event, data in holder.server?.broadcast(event: event, json: data) },
+            clientCount: { holder.server?.streamCount ?? 0 })
+        self.bridge = bridge
         let server = RemoteServer(
-            handler: { [weak api] request in
-                guard let api else { return .text("Not available", status: 404) }
-                return await api.handle(request)
+            handler: { [weak bridge] request in
+                guard let bridge else { return .text("Not available", status: 404) }
+                return await bridge.handle(request)
             },
             onState: { [weak self] state in
                 Task { @MainActor in self?.serverChanged(state) }
+            },
+            onClients: { [weak self] count in
+                Task { @MainActor in self?.phones = count }
             })
+        holder.server = server
         self.server = server
         server.start(port: UInt16(port))
     }
@@ -104,7 +99,8 @@ final class RemoteController {
     private func stop(keepEnabled: Bool = false) {
         server?.stop()
         server = nil
-        api = nil
+        bridge = nil
+        phones = 0
         if !keepEnabled { status = .off }
     }
 

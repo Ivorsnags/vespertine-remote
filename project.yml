@@ -35,6 +35,10 @@ targets:
       - path: App/Licenses
         type: folder
         buildPhase: resources
+      # Vespertine Remote: the built phone page (made from RemoteWeb/ with `npm run build`; committed so Xcode needs no npm).
+      - path: RemoteWeb/site
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: VespertineKit
         product: VespertineAudio
